@@ -1,198 +1,189 @@
-import math
-import random
-from _decimal import Decimal
-from itertools import compress
+from math import sqrt
+from random import randrange
+from numpy.linalg import solve
+from functools import partial
 from scipy.stats import f, t
-import numpy
-from functools import reduce
-
-def regression_equation(x1, x2, x3, coeffs, importance=[True] * 11):
-    factors_array = [1, x1, x2, x3, x1 * x2, x1 * x3, x2 * x3, x1 * x2 * x3, x1 ** 2, x2 ** 2, x3 ** 2]
-    return sum([el[0] * el[1] for el in compress(zip(coeffs, factors_array), importance)])
-
-def func(x1, x2, x3):
-    coeffs = [4.6, 5.6, 7.0, 3.9, 1.6, 0.7, 0.5, 9.6, 0.6, 2.5, 3.7]
-    return regression_equation(x1, x2, x3, coeffs)
-
-x1_min = -25
-x2_min = -70
-x3_min = -26
-x1_max = -5
-x2_max = -10
-x3_max = -5
-x01 = (x1_min + x1_max) / 2
-x02 = (x2_min + x2_max) / 2
-x03 = (x3_min + x3_max) / 2
-delta_x1 = x1_max - x01
-delta_x2 = x2_max - x02
-delta_x3 = x3_max - x03
-
-norm_plan_raw = [[-1, -1, -1],
-                 [-1, +1, +1],
-                 [+1, -1, +1],
-                 [+1, +1, -1],
-                 [-1, -1, +1],
-                 [-1, +1, -1],
-                 [+1, -1, -1],
-                 [+1, +1, +1],
-                 [-1.73, 0, 0],
-                 [+1.73, 0, 0],
-                 [0, -1.73, 0],
-                 [0, +1.73, 0],
-                 [0, 0, -1.73],
-                 [0, 0, +1.73]]
-
-natur_plan_raw = [[x1_min, x2_min, x3_min],
-                  [x1_min, x2_min, x3_max],
-                  [x1_min, x2_max, x3_min],
-                  [x1_min, x2_max, x3_max],
-                  [x1_max, x2_min, x3_min],
-                  [x1_max, x2_min, x3_max],
-                  [x1_max, x2_max, x3_min],
-                  [x1_max, x2_max, x3_max],
-                  [-1.73 * delta_x1 + x01, x02, x03],
-                  [1.73 * delta_x1 + x01, x02, x03],
-                  [x01, -1.73 * delta_x2 + x02, x03],
-                  [x01, 1.73 * delta_x2 + x02, x03],
-                  [x01, x02, -1.73 * delta_x3 + x03],
-                  [x01, x02, 1.73 * delta_x3 + x03],
-                  [x01, x02, x03]]
-
-def generate_factors_table(raw_array):
-    raw_list = [row + [row[0] * row[1], row[0] * row[2], row[1] * row[2], row[0] * row[1] * row[2]] + list(
-        map(lambda x: x ** 2, row)) for row in raw_array]
-    return list(map(lambda row: list(map(lambda el: round(el, 3), row)), raw_list))
-
-def generate_y(m, factors_table):
-    return [[round(func(row[0], row[1], row[2]) + random.randint(-5, 5), 3) for _ in range(m)] for row in factors_table]
-
-def print_matrix(m, N, factors, y_vals, additional_text=":"):
-    labels_table = list(map(lambda x: x.ljust(10),
-                            ["x1", "x2", "x3", "x12", "x13", "x23", "x123", "x1^2", "x2^2", "x3^2"] + [
-                                "y{}".format(i + 1) for i in range(m)]))
-    rows_table = [list(factors[i]) + list(y_vals[i]) for i in range(N)]
-    print("\nМатриця планування" + additional_text)
-    print(" ".join(labels_table))
-    print("\n".join([" ".join(map(lambda j: "{:<+10}".format(j), rows_table[i])) for i in range(len(rows_table))]))
-    print("\t")
+import time
 
 
-def print_equation(coeffs, importance=[True] * 11):
-    x_i_names = list(compress(["", "x1", "x2", "x3", "x12", "x13", "x23", "x123", "x1^2", "x2^2", "x3^2"], importance))
-    coefficients_to_print = list(compress(coeffs, importance))
-    equation = " ".join(
-        ["".join(i) for i in zip(list(map(lambda x: "{:+.2f}".format(x), coefficients_to_print)), x_i_names)])
-    print("Рівняння регресії: y = " + equation)
+x1, x2, x3 = [-25, -5], [-70, -10], [-25, -5]
+m, N, l = 2, 15, 1.73
+number = []
+t_end = time.time() + 10
+
+x_avg = [(max(x1) + max(x2) + max(x3)) / 3, (min(x1) + min(x2) + min(x3)) / 3]
+xo = [(min(x1) + max(x1)) / 2, (min(x2) + max(x2)) / 2, (min(x3) + max(x3)) / 2]
+delta_x = [max(x1) - xo[0], max(x1) - xo[1], max(x1) - xo[2]]
+
+y_range = [200 + int(max(x_avg)), 200 + int(min(x_avg))]
+
+xn = [[-1, -1, -1, -1, +1, +1, +1, +1, -1.73, 1.73, 0, 0, 0, 0, 0],
+      [-1, -1, +1, +1, -1, -1, +1, +1, 0, 0, -1.73, 1.73, 0, 0, 0],
+      [-1, +1, -1, +1, -1, +1, -1, +1, 0, 0, 0, 0, -1.73, 1.73, 0]]
+
+xx = [[int(x * y) for x, y in zip(xn[0], xn[1])],
+      [int(x * y) for x, y in zip(xn[0], xn[2])],
+      [int(x * y) for x, y in zip(xn[1], xn[2])]]
+
+xxx = [int(x * y * z) for x, y, z in zip(xn[0], xn[1], xn[2])]
+
+x_xn = [[round(xn[j][i] ** 2, 3) for i in range(N)] for j in range(3)]
+
+x = [[min(x1), min(x1), min(x1), min(x1), max(x1), max(x1), max(x1), max(x1), round(-l * delta_x[0] + xo[0], 3),
+      round(l * delta_x[0] + xo[0], 3), xo[0], xo[0], xo[0], xo[0], xo[0]],
+     [min(x2), min(x2), max(x2), max(x2), min(x2), min(x2), max(x2), max(x2), xo[1], xo[1],
+      round(-l * delta_x[1] + xo[1], 3), round(l * delta_x[1] + xo[1], 3), xo[1], xo[1], xo[1]],
+     [min(x3), max(x3), min(x3), max(x3), max(x3), min(x3), max(x3), min(x3), xo[2], xo[2], xo[2], xo[2],
+      round(-l * delta_x[2] + xo[2], 3), round(l * delta_x[2] + xo[2], 3), xo[2]]]
+
+xx2 = [[int(x * y) for x, y in zip(x[0], x[1])],
+      [int(x * y) for x, y in zip(x[0], x[2])],
+      [int(x * y) for x, y in zip(x[1], x[2])]]
+
+xxx2 = [int(x * y * z) for x, y, z in zip(x[0], x[1], x[2])]
+
+x_x = [[round(x[j][i] ** 2, 3) for i in range(N)] for j in range(3)]
+
+while time.time() <= t_end:
+    while True:
+          y = [[round(4.6 + 5.6 * x[0][j] + 7.0 * x[1][j] + 3.9 * x[2][j] + 1.6 * x[0][j] * x[0][j] + 0.7 * x[1][j] * x[1][j] +
+                          0.5 * x[2][j] * x[2][j] + 9.6 * x[0][j] * x[1][j] + 0.6 * x[0][j] * x[2][j] + 2.5 * x[1][j] * x[2][j] +
+                          3.7 * x[0][j] * x[1][j] * x[2][j] + randrange(0, 10) - 5, 2) for i in range(m)] for j in range(N)]
+          # print(y)
+          arr_avg = lambda arr: round(sum(arr) / len(arr), 4)
+          y_avg = list(map(arr_avg, y))
+
+          dispersions = [sum([((y[i][j] - y_avg[i]) ** 2) / m for j in range(m)]) for i in range(N)]
+          x_matrix = x + xx2 + [xxx2] + x_x
+          norm_matrix = xn + xx + [xxx] + x_xn
+
+          mx = list(map(arr_avg, x_matrix))
+          my = sum(y_avg) / N
+
+          table_factors_1 = ["X1", "X2", "X3"]
+          table_factors_2 = ["X1X2", "X1X3", "X2X3", "X1X2X3", "X1^2", "X2^2", "X3^2"]
+          table_y = ["Y{}".format(i + 1) for i in range(m)]
+          other = ["#", "Y"]
+
+          header_format_norm = "+{0:=^3}" + "+{0:=^8}" * (len(table_factors_1)) + "+{0:=^8s}" * (len(table_factors_2))
+          header_format = "+{0:=^3}" + "+{0:=^8}" * (len(table_factors_1)) + "+{0:=^10s}" * (len(table_factors_2)) + "+{0:=^10s}" * (len(table_y)) + "+{0:=^10s}"
+          row_format_norm = "|{:^3}" + "|{:^8}" * (len(table_factors_1)) + "|{:^8}" * (len(table_factors_2))
+          separator_format_norm = "+{0:-^3s}" + "+{0:-^8s}" * (len(table_factors_1)) + "+{0:-^8s}" * (len(table_factors_2))
+          separator_format = "+{0:-^3s}" + "+{0:-^8s}" * (len(table_factors_1)) + "+{0:-^10s}" * (len(table_factors_2)) + "+{0:-^10s}" * (len(table_y)) + "+{0:-^10s}"
+          my_sep_norm = "|{:^93s}|\n"
+          my_sep = "|{:^140s}|\n" if m == 2 else "|{:^151s}|\n"
+
+          print(header_format_norm.format("=") + "+\n" + my_sep_norm.format("Матриця ПФЕ (нормальні значення факторів)") +
+                header_format_norm.format("=") + "+\n" + row_format_norm.format(other[0], *table_factors_1,
+                                                                                *table_factors_2)
+                + "|\n" + header_format_norm.format("=") + "+")
+
+          for i in range(N):
+              print("|{:^3}|".format(i + 1), end="")
+              for j in range(3): print("{:^+8}|".format(xn[j][i]), end="")
+              for j in range(3): print("{:^+8}|".format(xx[j][i]), end="")
+              print("{:^+8}|".format(xxx[i]), end="")
+              for j in range(3): print("{:^+8}|".format(x_xn[j][i]), end="")
+              print()
+
+          print(separator_format_norm.format("-") + "+\n\n")
 
 
-def set_factors_table(factors_table):
-    def x_i(i):
-        with_null_factor = list(map(lambda x: [1] + x, generate_factors_table(factors_table)))
-        res = [row[i] for row in with_null_factor]
-        return numpy.array(res)
+          def a(first, second):return sum([x_matrix[first - 1][j] * x_matrix[second - 1][j] / N for j in range(N)])
+          def find_a(num):return sum([y_avg[j] * x_matrix[num - 1][j] / N for j in range(N)])
+          def check(b_lst, k):
+              return b_lst[0] + b_lst[1] * x_matrix[0][k] + b_lst[2] * x_matrix[1][k] + b_lst[3] * x_matrix[2][k] + \
+                     b_lst[4] * x_matrix[3][k] + b_lst[5] * x_matrix[4][k] + b_lst[6] * x_matrix[5][k] + \
+                     b_lst[7] * x_matrix[6][k] + b_lst[8] * x_matrix[7][k] + b_lst[9] * x_matrix[8][k] + \
+                     b_lst[10] * x_matrix[9][k]
 
-    return x_i
+          unknown = [[1, mx[0], mx[1], mx[2], mx[3], mx[4], mx[5], mx[6], mx[7], mx[8], mx[9]],
+                     [mx[0], a(1, 1), a(1, 2), a(1, 3), a(1, 4), a(1, 5), a(1, 6), a(1, 7), a(1, 8), a(1, 9), a(1, 10)],
+                     [mx[1], a(2, 1), a(2, 2), a(2, 3), a(2, 4), a(2, 5), a(2, 6), a(2, 7), a(2, 8), a(2, 9), a(2, 10)],
+                     [mx[2], a(3, 1), a(3, 2), a(3, 3), a(3, 4), a(3, 5), a(3, 6), a(3, 7), a(3, 8), a(3, 9), a(3, 10)],
+                     [mx[3], a(4, 1), a(4, 2), a(4, 3), a(4, 4), a(4, 5), a(4, 6), a(4, 7), a(4, 8), a(4, 9), a(4, 10)],
+                     [mx[4], a(5, 1), a(5, 2), a(5, 3), a(5, 4), a(5, 5), a(5, 6), a(5, 7), a(5, 8), a(5, 9), a(5, 10)],
+                     [mx[5], a(6, 1), a(6, 2), a(6, 3), a(6, 4), a(6, 5), a(6, 6), a(6, 7), a(6, 8), a(6, 9), a(6, 10)],
+                     [mx[6], a(7, 1), a(7, 2), a(7, 3), a(7, 4), a(7, 5), a(7, 6), a(7, 7), a(7, 8), a(7, 9), a(7, 10)],
+                     [mx[7], a(8, 1), a(8, 2), a(8, 3), a(8, 4), a(8, 5), a(8, 6), a(8, 7), a(8, 8), a(8, 9), a(8, 10)],
+                     [mx[8], a(9, 1), a(9, 2), a(9, 3), a(9, 4), a(9, 5), a(9, 6), a(9, 7), a(9, 8), a(9, 9), a(9, 10)],
+                     [mx[9], a(10, 1), a(10, 2), a(10, 3), a(10, 4), a(10, 5), a(10, 6), a(10, 7), a(10, 8), a(10, 9),
+                      a(10, 10)]]
+          known = [my, find_a(1), find_a(2), find_a(3), find_a(4), find_a(5), find_a(6), find_a(7), find_a(8), find_a(9),find_a(10)]
 
-
-def m_ij(*arrays):
-    return numpy.average(reduce(lambda accum, el: accum * el, list(map(lambda el: numpy.array(el), arrays))))
-
-
-def find_coefficients(factors, y_vals):
-    x_i = set_factors_table(factors)
-    coeffs = [[m_ij(x_i(column), x_i(row)) for column in range(11)] for row in range(11)]
-    y_numpy = list(map(lambda row: numpy.average(row), y_vals))
-    free_values = [m_ij(y_numpy, x_i(i)) for i in range(11)]
-    beta_coefficients = numpy.linalg.solve(coeffs, free_values)
-    return list(beta_coefficients)
-
-
-def cochran_criteria(m, N, y_table):
-    def get_cochran_value(f1, f2, q):
-        partResult1 = q / f2
-        params = [partResult1, f1, (f2 - 1) * f1]
-        fisher = f.isf(*params)
-        result = fisher / (fisher + (f2 - 1))
-        return Decimal(result).quantize(Decimal('.0001')).__float__()
-
-    print("Перевірка рівномірності дисперсій за критерієм Кохрена: m = {}, N = {}".format(m, N))
-    y_variations = [numpy.var(i) for i in y_table]
-    max_y_variation = max(y_variations)
-    gp = max_y_variation / sum(y_variations)
-    f1 = m - 1
-    f2 = N
-    p = 0.95
-    q = 1 - p
-    gt = get_cochran_value(f1, f2, q)
-    print("Gp = {}; Gt = {}; f1 = {}; f2 = {}; q = {:.2f}".format(gp, gt, f1, f2, q))
-    if gp < gt:
-        print("Gp < Gt => дисперсії рівномірні - все правильно")
-        return True
-    else:
-        print("Gp > Gt => дисперсії нерівномірні - треба ще експериментів")
-        return False
+          b = solve(unknown, known)
+          print(separator_format.format("-") + f"+\n\n\tОтримане рівняння регресії при m={m}:\n"
+                                               f"ŷ = {b[0]:.3f} + {b[1]:.3f}*X1 + {b[2]:.3f}*X2 + "
+                                               f"{b[3]:.3f}*X3 + {b[4]:.3f}*X1X2 + {b[5]:.3f}*X1X3 + "
+                                               f"{b[6]:.3f}*X2X3 + {b[7]:.3f}*X1X2X3 + {b[8]:.3f}*X11^2 + "
+                                               f"{b[9]:.3f}*X22^2 + {b[10]:.3f}*X33^2\n\n\tПеревірка:")
+          for i in range(N): print("ŷ{} = {:.3f} ≈ {:.3f}".format((i + 1), check(b, i), y_avg[i]))
 
 
-def student_criteria(m, N, y_table, beta_coefficients):
-    def get_student_value(f3, q):
-        return Decimal(abs(t.ppf(q / 2, f3))).quantize(Decimal('.0001')).__float__()
-
-    print("\nПеревірка значимості коефіцієнтів регресії за критерієм Стьюдента: m = {}, N = {} ".format(m, N))
-    average_variation = numpy.average(list(map(numpy.var, y_table)))
-    variation_beta_s = average_variation / N / m
-    standard_deviation_beta_s = math.sqrt(variation_beta_s)
-    t_i = numpy.array([abs(beta_coefficients[i]) / standard_deviation_beta_s for i in range(len(beta_coefficients))])
-    f3 = (m - 1) * N
-    q = 0.05
-    t_our = get_student_value(f3, q)
-    importance = [True if el > t_our else False for el in list(t_i)]
-    # print result data
-    print("Оцінки коефіцієнтів βs: " + ", ".join(list(map(lambda x: str(round(float(x), 3)), beta_coefficients))))
-    print("Коефіцієнти ts: " + ", ".join(list(map(lambda i: "{:.2f}".format(i), t_i))))
-    print("f3 = {}; q = {}; tтабл = {}".format(f3, q, t_our))
-    beta_i = ["β0", "β1", "β2", "β3", "β12", "β13", "β23", "β123", "β11", "β22", "β33"]
-    importance_to_print = ["важливий" if i else "неважливий" for i in importance]
-    to_print = map(lambda x: x[0] + " " + x[1], zip(beta_i, importance_to_print))
-    print(*to_print, sep="; ")
-    print_equation(beta_coefficients, importance)
-    return importance
+          def table_fisher(prob, n, m, d):
+              x_vec = [i * 0.001 for i in range(int(10 / 0.001))]
+              f3 = (m - 1) * n
+              for i in x_vec:
+                  if abs(f.cdf(i, n - d, f3) - prob) < 0.0001:
+                      return i
 
 
-def fisher_criteria(m, N, d, x_table, y_table, b_coefficients, importance):
-    def get_fisher_value(f3, f4, q):
-        return Decimal(abs(f.isf(q, f4, f3))).quantize(Decimal('.0001')).__float__()
+          f1, f2 = m - 1, N
+          f3 = f1 * f2
+          fisher = table_fisher(0.95, N, m, 1)
+          Gp = max(dispersions) / sum(dispersions)
+          Gt = fisher / (fisher + (m - 1) - 2)
 
-    f3 = (m - 1) * N
-    f4 = N - d
-    q = 0.05
-    theoretical_y = numpy.array([regression_equation(row[0], row[1], row[2], b_coefficients) for row in x_table])
-    average_y = numpy.array(list(map(lambda el: numpy.average(el), y_table)))
-    s_ad = m / (N - d) * sum((theoretical_y - average_y) ** 2)
-    y_variations = numpy.array(list(map(numpy.var, y_table)))
-    s_v = numpy.average(y_variations)
-    f_p = float(s_ad / s_v)
-    f_t = get_fisher_value(f3, f4, q)
-    theoretical_values_to_print = list(
-        zip(map(lambda x: "x1 = {0[1]:<10} x2 = {0[2]:<10} x3 = {0[3]:<10}".format(x), x_table), theoretical_y))
-    print("\nПеревірка адекватності моделі за критерієм Фішера: m = {}, N = {} для таблиці y_table".format(m, N))
-    print("Теоретичні значення y для різних комбінацій факторів:")
-    print("\n".join(["{arr[0]}: y = {arr[1]}".format(arr=el) for el in theoretical_values_to_print]))
-    print("Fp = {}, Ft = {}".format(f_p, f_t))
-    print("Fp < Ft => модель адекватна" if f_p < f_t else "Fp > Ft => модель неадекватна")
-    return True if f_p < f_t else False
+          print("\nОднорідність дисперсії (критерій Кохрена): ")
+          print(f"Gp = {Gp}\nGt = {Gt}")
+          if Gp < Gt:
+              print("\nДисперсія однорідна (Gp < Gt)")
 
+              D_beta = sum(dispersions) / (N * N * m)
+              Sb = sqrt(abs(D_beta))
+              beta = [sum([(y_avg[j] * norm_matrix[i][j]) / N for j in range(N)]) for i in range(len(norm_matrix))]
 
-m = 3
-N = 15
-natural_plan = generate_factors_table(natur_plan_raw)
-y_arr = generate_y(m, natur_plan_raw)
-while not cochran_criteria(m, N, y_arr):
-    m += 1
-    y_arr = generate_y(m, natural_plan)
+              t_list = [abs(i) / Sb for i in beta]
+              student = partial(t.ppf, q=1 - 0.025)
+              d, T = 0, student(df=f3)
+              print("\nt табличне = ", T)
 
-print_matrix(m, N, natural_plan, y_arr, " для натуралізованих факторів:")
-coefficients = find_coefficients(natural_plan, y_arr)
-print_equation(coefficients)
-importance = student_criteria(m, N, y_arr, coefficients)
-d = len(list(filter(None, importance)))
-fisher_criteria(m, N, d, natural_plan, y_arr, coefficients, importance)
+              for i in range(len(t_list)):
+                  if t_list[i] < T:
+                      b[i] = 0
+                      print(
+                          "\tt{} = {} => коефіцієнт незначимий, його слід виключити з рів-ня регресії".format(i, t_list[i]))
+                  else:
+                      print("\tt{} = {} => коефіцієнт значимий".format(i, t_list[i]))
+                      d += 1
+                      number.append(d)
+              # print(number)
+
+              print("\nОтже, кіл-ть значимих коеф. d =", d, "\n\n\tРів-ня регресії з урахуванням критерія Стьюдента:\nŷ = ",
+                    end="")
+              print("{:.3f}".format(b[0]), end="") if b[0] != 0 else None
+              for i in range(1, 10):
+                  print(" + {:.3f}*{}".format(b[i], (table_factors_1 + table_factors_2)[i]), end="") if b[i] != 0 else None
+              print("\n\n\tПеревірка при підстановці в спрощене рів-ня регресії:")
+              for i in range(N): print("y`{} = {:.3f} ≈ {:.3f}".format((i + 1), check(b, i), y_avg[i]))
+
+              f4 = N - d
+              fisher_sum = sum([(check(b, i) - y_avg[i]) ** 2 for i in range(N)])
+              D_ad = (m / f4) * fisher_sum
+
+              fisher = partial(f.ppf, q=1 - 0.05)
+              Fp = D_ad / sum(dispersions) / N
+              Ft = fisher(dfn=f4, dfd=f3)
+              print("\nКритерій Фішера:")
+              if Fp > Ft:
+                  print("\tРівняння регресії неадекватне (Ft < Fp).")
+                  break
+              else:
+                  print("\tРівняння регресії адекватне (Ft > Fp)!")
+                  break
+
+          else:
+              print("Дисперсія неоднорідна (Gp > Gt), збільшуємо m, повторюємо операції")
+              m += 1
+
+print("Кількість значимих коефіцієнтів:", len(number))
